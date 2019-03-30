@@ -1,0 +1,4 @@
+-cp generator
+-main Generator
+-python bin/generator.py
+-cmd python3 bin/generator.py
