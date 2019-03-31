@@ -1,5 +1,7 @@
 package;
 
+import haxe.io.Path;
+import sys.FileSystem;
 using StringTools;
 
 /**
@@ -26,9 +28,42 @@ class Generator
     private var extendedInterfaces = new Array<String>();
     private var methods = new Array<SourceMethod>();
 
-    public function new(_source:String)
+    private static function findCode(xml:Xml):Xml
     {
-        source = _source;
+        for (child in xml.iterator()) {
+            if (child.nodeType != Element) continue;
+            if (child.nodeName == 'div' && child.get('class') == 'fragment') {
+                return child;
+            }
+            var code = findCode(child);
+            if (code != null) return code;
+        }
+        return null;
+    }
+
+    private static function parseCode(xml:Xml):String
+    {
+        var code = '';
+
+        for (child in xml.iterator()) {
+            if (child.nodeType == Element) {
+                if (child.get('class') == 'lineno' || child.get('class') == 'ttc') continue;
+                code += parseCode(child);
+            }
+            else if (child.nodeType == PCData) {
+                code += child.nodeValue;
+            }
+        }
+
+        return code;
+    }
+
+    public function new(path:String)
+    {
+        var xmlContents = sys.io.File.getContent(path);
+        var xml = Xml.parse(xmlContents);
+        var code = findCode(xml);
+        source = parseCode(code);
     }
 
     private function removeCom(inStr:String):String
@@ -71,26 +106,30 @@ class Generator
                     sourceMethod.returnType = fnFinder.matched(1);
                     sourceMethod.fnName = fnFinder.matched(2);
                     for (argument in fnFinder.matched(3).split(',')) {
+                        argument = argument.trim();
                         var argParams = ~/\s+/.split(argument);
                         if (argParams.length != 2) throw 'Not two proper tokens: ${argument}';
                         sourceMethod.arguments.push({argName: argParams[1], argType: argParams[0]});
                     }
                     methods.push(sourceMethod);
-                    trace(sourceMethod.fnName);
-                    trace(sourceMethod.returnType);
-                    trace(sourceMethod.arguments);
+                    // trace(sourceMethod.fnName);
+                    // trace(sourceMethod.returnType);
+                    // trace(sourceMethod.arguments);
                 }
             }
         }
-        trace(packageName);
-        trace(imports);
-        trace(className);
-        trace(extendedInterfaces);
+        // trace(packageName);
+        // trace(imports);
+        // trace(className);
+        // trace(extendedInterfaces);
     }
 
     private static var typeTranslations = [
         'void' => 'Void',
         'int' => 'Int',
+        'boolean' => 'Bool',
+        'float' => 'Float',
+        'double' => 'Float',
     ];
 
     private function translateType(inType:String):String
@@ -129,33 +168,30 @@ class Generator
         return generatedHaxe;
     }
 
+    public function save():Void
+    {
+        parse();
+        var code = generateHx();
+        var path = [Sys.getCwd(), 'src'];
+        path = path.concat(removeCom(packageName).split('.'));
+        // path.push(className + '.hx');
+        var savePath = haxe.io.Path.join(path);
+        FileSystem.createDirectory(savePath);
+        sys.io.File.saveContent(Path.join([savePath, className + '.hx']), code);
+    }
+
     public static function main()
     {
-        var generator = new Generator('package com.bitwig.extension.api.graphics;
-
-        import com.bitwig.extension.api.MemoryBlock;
-
-        public interface Bitmap extends Image
-        {
-        @Override
-        int getWidth();
-
-        @Override
-        int getHeight();
-
-        BitmapFormat getFormat();
-
-        MemoryBlock getMemoryBlock();
-
-        void render(Renderer renderer);
-
-        void showDisplayWindow();
-
-        void setDisplayWindowTitle(String title);
-
-        void saveToDiskAsPPM(String path);
-        }');
-        generator.parse();
-        trace(generator.generateHx());
+        if (Sys.args().length != 1) {
+            trace('Usage: generator BITWIG_DOCS_PATH');
+            return;
+        }
+        var path = Sys.args()[0];
+        for (fileName in sys.FileSystem.readDirectory(path)) {
+            if (~/_source\.html/.match(fileName)) {
+                var generator = new Generator(haxe.io.Path.join([path, fileName]));
+                generator.save();
+            }
+        }
     }
 }
