@@ -80,7 +80,7 @@ class Generator
         var inClass = false;
         var packageFinder = ~/^\s*package\s+([^;]+);\s*$/;
         var importFinder = ~/^\s*import\s+([^;]+);\s*$/;
-        var interfaceFinder = ~/interface\s+(\w+)(?:\s+extends\s+([^{]+))/;
+        var interfaceFinder = ~/interface\s+(\w+)(?:\s+extends\s+([^{]+))?/;
         var fnFinder = ~/^\s*(\w+)\s+(\w+)\s*\(\s*([^)]+)\s*\)\s*;\s*/;
         for (line in source.split('\n')) {
             if (!inClass) {
@@ -107,9 +107,9 @@ class Generator
                     sourceMethod.fnName = fnFinder.matched(2);
                     for (argument in fnFinder.matched(3).split(',')) {
                         argument = argument.trim();
-                        var argParams = ~/\s+/.split(argument);
-                        if (argParams.length != 2) throw 'Not two proper tokens: ${argument}';
-                        sourceMethod.arguments.push({argName: argParams[1], argType: argParams[0]});
+                        var argParams = ~/\s+/g.split(argument);
+                        if (argParams.length < 2) throw 'Not at least two proper tokens: ${argument}';
+                        sourceMethod.arguments.push({argName: argParams[argParams.length - 1], argType: argParams[argParams.length - 2]});
                     }
                     methods.push(sourceMethod);
                     // trace(sourceMethod.fnName);
@@ -130,10 +130,19 @@ class Generator
         'boolean' => 'Bool',
         'float' => 'Float',
         'double' => 'Float',
+        'Object' => 'js.Object',
+        'Number' => 'Int',
     ];
 
     private function translateType(inType:String):String
     {
+        if (inType == 'byte[]') return 'js.lib.Uint8Array';
+        var arrayMatcher = ~/^(.+)\[\]$/;
+        if (arrayMatcher.match(inType)) {
+            var a = 'Array<${translateType(arrayMatcher.matched(1))}>';
+            trace(a);
+            return a;
+        }
         if (typeTranslations.exists(inType)) {
             return typeTranslations[inType];
         }
@@ -151,7 +160,7 @@ class Generator
             generatedHaxe += 'import ${removeCom(importName)};\n';
         }
 
-        generatedHaxe += 'jsRequire("${packageName}", "${className}")\n';
+        generatedHaxe += '@:jsRequire("${packageName}", "${className}")\n';
         generatedHaxe += 'interface $className';
         for (extendedInterface in extendedInterfaces) {
             generatedHaxe += ' extends $extendedInterface';
@@ -171,6 +180,10 @@ class Generator
     public function save():Void
     {
         parse();
+        if (className == '') {
+            trace('skipping empty class');
+            return;
+        }
         var code = generateHx();
         var path = [Sys.getCwd(), 'src'];
         path = path.concat(removeCom(packageName).split('.'));
